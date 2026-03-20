@@ -7,6 +7,7 @@ import { getPlanById } from './constants/plans'
 import Step1Profile from './components/Onboarding/Step1Profile'
 import Step2Plans from './components/Onboarding/Step2Plans'
 import Step3Activate from './components/Onboarding/Step3Activate'
+import Landing from './components/Landing'
 
 // Dashboard
 import Header from './components/Dashboard/Header'
@@ -21,6 +22,7 @@ import RiskMap from './components/Dashboard/RiskMap'
 // Shared
 import PlanUpgradeModal from './components/PlanUpgradeModal'
 import DemoButton from './components/DemoButton'
+import { CheckCircleIcon, AlertTriangleIcon, ShieldCheckIcon } from './components/Icons'
 
 export default function App() {
     const { t } = useLang()
@@ -32,7 +34,7 @@ export default function App() {
     const [planData, setPlanData] = useState({})
 
     // Dashboard state
-    const [view, setView] = useState(user ? 'dashboard' : 'onboarding') // onboarding | loading | dashboard
+    const [view, setView] = useState('landing') // landing | onboarding | loading | dashboard
     const [income, setIncome] = useState('')
     const [result, setResult] = useState(null)
     const [historyData, setHistoryData] = useState(null)
@@ -151,20 +153,51 @@ export default function App() {
     const displayData = demoResult || result
 
     // ONBOARDING
+    if (view === 'landing') {
+        return (
+            <Landing
+                hasUser={!!user}
+                onStart={() => { setStep(0); setView('onboarding') }}
+                onResume={() => setView('dashboard')}
+            />
+        )
+    }
+
     if (view === 'onboarding') {
         return (
-            <div className="max-w-md mx-auto px-5 py-8 min-h-screen flex flex-col">
+            <div className="max-w-md mx-auto px-5 py-8 min-h-screen flex flex-col relative">
+                <div className="pointer-events-none absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_top,_rgba(34,197,94,0.12),_transparent_45%),radial-gradient(circle_at_bottom_right,_rgba(245,158,11,0.08),_transparent_40%)]" />
                 {/* Progress */}
-                <div className="flex justify-center gap-2 mb-2">
+                <div className="relative z-10 flex justify-center gap-2 mb-2">
                     {[0, 1, 2].map(i => (
                         <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i <= step ? 'bg-white w-12' : 'bg-[#2a2a2a] w-8'}`} />
                     ))}
                 </div>
-                <div className="text-center text-[11px] text-[#9ca3af] mb-8">Step {step + 1} of 3</div>
+                <div className="relative z-10 text-center text-[11px] text-[#9ca3af] mb-8">Step {step + 1} of 3</div>
 
-                {step === 0 && <Step1Profile data={profileData} onChange={setProfileData} onNext={() => setStep(1)} />}
-                {step === 1 && <Step2Plans data={planData} onChange={setPlanData} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
-                {step === 2 && <Step3Activate data={planData} onActivate={handleActivate} onBack={() => setStep(1)} />}
+                <div className="relative z-10 bg-[#111111]/70 backdrop-blur-sm border border-[#2a2a2a] rounded-3xl p-5 shadow-[0_10px_40px_rgba(0,0,0,0.45)]">
+                    {step === 0 && (
+                        <Step1Profile
+                            data={profileData}
+                            onChange={setProfileData}
+                            onBack={() => setView('landing')}
+                            onNext={(prefillPlan) => {
+                                if (prefillPlan) {
+                                    setPlanData(prev => ({
+                                        ...prev,
+                                        plan: prefillPlan.id,
+                                        planName: prefillPlan.name,
+                                        maxIncome: prefillPlan.maxIncome,
+                                        coverage: prefillPlan.coverage,
+                                    }))
+                                }
+                                setStep(1)
+                            }}
+                        />
+                    )}
+                    {step === 1 && <Step2Plans data={planData} onChange={setPlanData} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
+                    {step === 2 && <Step3Activate data={planData} onActivate={handleActivate} onBack={() => setStep(1)} />}
+                </div>
             </div>
         )
     }
@@ -196,7 +229,9 @@ export default function App() {
                             ? 'bg-[#22c55e]/8 border border-[#22c55e]/20'
                             : 'bg-[#f59e0b]/8 border border-[#f59e0b]/20'
                         }`}>
-                        <span className="text-lg">{displayData.protected ? '✅' : '⚠️'}</span>
+                        {displayData.protected
+                            ? <CheckCircleIcon className="w-5 h-5 text-[#22c55e]" />
+                            : <AlertTriangleIcon className="w-5 h-5 text-[#f59e0b]" />}
                         <p className={`text-sm font-medium ${displayData.protected ? 'text-[#22c55e]' : 'text-[#f59e0b]'}`}>
                             {displayData.protected
                                 ? `${t('youAreProtected')} ${fmt(displayData.compensation)} ${t('compIssued')}`
@@ -239,7 +274,11 @@ export default function App() {
                         {user?.planName} · {user?.coverage}% {t('planBadge')}
                     </div>
 
-                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl p-6">
+                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-1.5 text-sm text-[#9ca3af]"><ShieldCheckIcon className="w-4 h-4" /> Protection check for {user?.jobType}</div>
+                            <div className="text-xs font-semibold text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-full px-2 py-1">AI Ready</div>
+                        </div>
                         <label className="block text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-2">
                             {t('enterIncome')}
                             <span className="text-[#9ca3af] font-normal normal-case ml-1">(max {fmt(user?.maxIncome || 0)})</span>
@@ -268,6 +307,14 @@ export default function App() {
                                     Analyzing...
                                 </span>
                             ) : t('analyzeRisk')}
+                        </button>
+
+                        <button
+                            className="w-full mt-3 py-3 text-[#9ca3af] hover:text-white transition-colors text-sm"
+                            type="button"
+                            onClick={() => setView('onboarding')}
+                        >
+                            {t('back')}
                         </button>
                     </div>
                 </div>
