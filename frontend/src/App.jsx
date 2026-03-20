@@ -1,119 +1,130 @@
 import { useState, useEffect } from 'react'
-import { t } from './i18n'
-import Onboarding from './components/Onboarding'
-import InputForm from './components/InputForm'
-import Dashboard from './components/Dashboard'
-import LoadingScreen from './components/LoadingScreen'
-import EarningsChart from './components/EarningsChart'
-import Forecast from './components/Forecast'
-import AIReport from './components/AIReport'
-import StreakBadge from './components/StreakBadge'
-import WeatherMap from './components/WeatherMap'
-import AIChatAssistant from './components/AIChatAssistant'
-import AutoDemo from './components/AutoDemo'
-import LanguageSwitcher from './components/LanguageSwitcher'
-import { ShieldIcon, AlertTriangleIcon } from './components/Icons'
+import { useLang } from './context/LanguageContext'
+import { useUser } from './context/UserContext'
+import { getPlanById } from './constants/plans'
+
+// Onboarding
+import Step1Profile from './components/Onboarding/Step1Profile'
+import Step2Plans from './components/Onboarding/Step2Plans'
+import Step3Activate from './components/Onboarding/Step3Activate'
+
+// Dashboard
+import Header from './components/Dashboard/Header'
+import StreakBanner from './components/Dashboard/StreakBanner'
+import MetricCards from './components/Dashboard/MetricCards'
+import AIInsight from './components/Dashboard/AIInsight'
+import EarningsChart from './components/Dashboard/EarningsChart'
+import ForecastCards from './components/Dashboard/ForecastCards'
+import WeeklyReport from './components/Dashboard/WeeklyReport'
+import RiskMap from './components/Dashboard/RiskMap'
+
+// Shared
+import PlanUpgradeModal from './components/PlanUpgradeModal'
+import DemoButton from './components/DemoButton'
 
 export default function App() {
-    // Language
-    const [lang, setLang] = useState(() => localStorage.getItem('eg_lang') || 'en')
+    const { t } = useLang()
+    const { user, saveUser } = useUser()
 
-    // Onboarding
-    const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('eg_onboarded'))
-    const [userData, setUserData] = useState(() => {
-        const saved = localStorage.getItem('eg_user')
-        return saved ? JSON.parse(saved) : null
-    })
+    // Onboarding state
+    const [step, setStep] = useState(0)
+    const [profileData, setProfileData] = useState({})
+    const [planData, setPlanData] = useState({})
 
-    // Views
-    const [view, setView] = useState('form') // form | loading | dashboard | demo
+    // Dashboard state
+    const [view, setView] = useState(user ? 'dashboard' : 'onboarding') // onboarding | loading | dashboard
+    const [income, setIncome] = useState('')
     const [result, setResult] = useState(null)
-    const [error, setError] = useState('')
-
-    // Extra data for dashboard
     const [historyData, setHistoryData] = useState(null)
     const [forecastData, setForecastData] = useState(null)
     const [reportData, setReportData] = useState(null)
+    const [mapData, setMapData] = useState(null)
+    const [error, setError] = useState('')
+    const [upgradeModal, setUpgradeModal] = useState(null)
+    const [loading, setLoading] = useState(false)
 
-    // Demo form data (for auto-demo)
-    const [demoFormData, setDemoFormData] = useState(null)
+    // Demo override
+    const [demoResult, setDemoResult] = useState(null)
 
-    // Persist language
-    useEffect(() => {
-        localStorage.setItem('eg_lang', lang)
-    }, [lang])
+    const fmt = v => `₹${Number(v).toLocaleString('en-IN')}`
 
-    // Onboarding complete
-    const handleOnboardingComplete = (data) => {
-        setUserData(data)
-        setOnboarded(true)
-        localStorage.setItem('eg_onboarded', 'true')
-        localStorage.setItem('eg_user', JSON.stringify(data))
+    // Onboarding handlers
+    const handleActivate = () => {
+        const userData = {
+            name: profileData.name,
+            jobType: profileData.jobType,
+            city: profileData.city,
+            plan: planData.plan,
+            planName: planData.planName,
+            billing: planData.billing,
+            maxIncome: planData.maxIncome,
+            coverage: planData.coverage,
+            customIncome: planData.customIncome,
+            price: planData.price,
+        }
+        saveUser(userData)
+        setView('dashboard')
     }
 
-    // Form submit
-    const handleSubmit = async (formData) => {
+    // Risk assessment
+    const handleAssess = async () => {
+        if (!user) return
+        const incomeVal = Number(income)
+        if (!incomeVal || incomeVal <= 0) return
+
         setError('')
-        setView('loading')
+        setLoading(true)
 
         try {
             const res = await fetch('/api/assess', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({
+                    name: user.name,
+                    job_type: user.jobType,
+                    city: user.city,
+                    expected_income: incomeVal,
+                    plan: user.plan,
+                    custom_income: user.customIncome,
+                }),
             })
             const data = await res.json()
-            if (!res.ok) throw new Error(data.error || 'Something went wrong')
 
-            // Fire parallel requests for extra data
-            const [histRes, foreRes, repRes] = await Promise.all([
-                fetch('/api/history', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        expected_income: formData.expected_income,
-                        job_type: formData.job_type,
-                        tier: formData.tier,
-                    }),
-                }),
-                fetch('/api/forecast', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        expected_income: formData.expected_income,
-                        job_type: formData.job_type,
-                        tier: formData.tier,
-                    }),
-                }),
+            if (!res.ok) {
+                if (data.error === 'Income exceeds plan limit') {
+                    setUpgradeModal({ maxIncome: data.max_allowed, suggestedPlan: data.suggested_plan })
+                    setLoading(false)
+                    return
+                }
+                throw new Error(data.error)
+            }
+
+            // Fetch extras in parallel
+            const params = `job_type=${encodeURIComponent(user.jobType)}&expected_income=${incomeVal}&plan=${user.plan}`
+            const [histRes, foreRes, repRes, mapRes] = await Promise.all([
+                fetch(`/api/history?${params}`),
+                fetch(`/api/forecast?city=${encodeURIComponent(user.city)}&${params}`),
                 fetch('/api/report', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: formData.name,
-                        expected_income: formData.expected_income,
-                        job_type: formData.job_type,
-                        tier: formData.tier,
-                    }),
+                    body: JSON.stringify({ name: user.name, job_type: user.jobType, expected_income: incomeVal, plan: user.plan }),
                 }),
+                fetch(`/api/map?city=${encodeURIComponent(user.city)}`),
             ])
 
-            const [hist, fore, rep] = await Promise.all([
-                histRes.json(),
-                foreRes.json(),
-                repRes.json(),
-            ])
+            const [hist, fore, rep, mp] = await Promise.all([histRes.json(), foreRes.json(), repRes.json(), mapRes.json()])
 
-            // Hold loading for effect
-            await new Promise((r) => setTimeout(r, 2000))
+            await new Promise(r => setTimeout(r, 1500))
 
             setResult(data)
             setHistoryData(hist)
             setForecastData(fore)
             setReportData(rep)
-            setView('dashboard')
+            setMapData(mp)
         } catch (err) {
             setError(err.message)
-            setView('form')
+        } finally {
+            setLoading(false)
         }
     }
 
@@ -122,112 +133,165 @@ export default function App() {
         setHistoryData(null)
         setForecastData(null)
         setReportData(null)
-        setView('form')
+        setMapData(null)
+        setDemoResult(null)
     }
 
-    const handleDemo = (formData) => {
-        setDemoFormData(formData)
-        setView('demo')
+    const handleUpgrade = (nextPlan) => {
+        const updated = { ...user, plan: nextPlan.id, planName: nextPlan.name, maxIncome: nextPlan.maxIncome || nextPlan.max_income, coverage: nextPlan.coverage * 100 || nextPlan.coverage }
+        saveUser(updated)
+        setUpgradeModal(null)
     }
 
-    const handleDemoClose = () => {
-        setDemoFormData(null)
-        setView('form')
+    const handleCap = (maxIncome) => {
+        setIncome(String(maxIncome))
+        setUpgradeModal(null)
     }
 
-    // Show onboarding
-    if (!onboarded) {
+    const displayData = demoResult || result
+
+    // ONBOARDING
+    if (view === 'onboarding') {
         return (
-            <div className="app-container">
-                <LanguageSwitcher lang={lang} onLangChange={setLang} />
-                <header className="app-header">
-                    <span className="app-header__icon"><ShieldIcon size={48} /></span>
-                    <h1 className="app-header__title">{t('appTitle', lang)}</h1>
-                    <p className="app-header__subtitle">{t('appSubtitle', lang)}</p>
-                </header>
-                <Onboarding onComplete={handleOnboardingComplete} lang={lang} />
+            <div className="max-w-md mx-auto px-5 py-8 min-h-screen flex flex-col">
+                {/* Progress */}
+                <div className="flex justify-center gap-2 mb-2">
+                    {[0, 1, 2].map(i => (
+                        <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i <= step ? 'bg-white w-12' : 'bg-[#2a2a2a] w-8'}`} />
+                    ))}
+                </div>
+                <div className="text-center text-[11px] text-[#9ca3af] mb-8">Step {step + 1} of 3</div>
+
+                {step === 0 && <Step1Profile data={profileData} onChange={setProfileData} onNext={() => setStep(1)} />}
+                {step === 1 && <Step2Plans data={planData} onChange={setPlanData} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
+                {step === 2 && <Step3Activate data={planData} onActivate={handleActivate} onBack={() => setStep(1)} />}
             </div>
         )
     }
 
-    // Show auto-demo
-    if (view === 'demo' && demoFormData) {
-        return (
-            <div className="app-container app-container--wide">
-                <LanguageSwitcher lang={lang} onLangChange={setLang} />
-                <header className="app-header app-header--compact">
-                    <span className="app-header__icon"><ShieldIcon size={32} /></span>
-                    <h1 className="app-header__title" style={{ fontSize: '1.5rem' }}>{t('appTitle', lang)}</h1>
-                </header>
-                <AutoDemo formData={demoFormData} lang={lang} onClose={handleDemoClose} />
-                <AIChatAssistant lang={lang} />
-            </div>
-        )
-    }
-
+    // DASHBOARD
     return (
-        <div className="app-container app-container--wide">
-            <LanguageSwitcher lang={lang} onLangChange={setLang} />
+        <div className="max-w-2xl mx-auto px-5 py-6 min-h-screen flex flex-col">
+            <Header />
 
-            {/* Header */}
-            <header className="app-header">
-                <span className="app-header__icon"><ShieldIcon size={48} /></span>
-                <h1 className="app-header__title">{t('appTitle', lang)}</h1>
-                <p className="app-header__subtitle">{t('appSubtitle', lang)}</p>
-            </header>
+            {/* Streak */}
+            <StreakBanner streak={historyData?.streak || 0} />
 
-            {/* Error */}
-            {error && (
-                <div className="status-banner status-banner--protected" style={{ marginBottom: 24, borderColor: 'rgba(255,69,58,0.2)', background: 'rgba(255,69,58,0.08)' }}>
-                    <span className="status-banner__icon"><AlertTriangleIcon size={24} /></span>
-                    <p className="status-banner__text" style={{ color: 'var(--red)' }}>{error}</p>
+            {/* If we have an assessment result */}
+            {displayData ? (
+                <div className="animate-[fadeIn_0.4s_ease]">
+                    {/* Greeting */}
+                    <h2 className="text-2xl font-bold text-white mb-0.5">Hey, {displayData.name}</h2>
+                    <p className="text-sm text-[#9ca3af] mb-3">
+                        {t('weeklyAssessment')} · {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </p>
+
+                    {/* Plan badge */}
+                    <div className="inline-block text-[10px] font-bold uppercase tracking-wider bg-[#1a1a1a] border border-[#2a2a2a] rounded-full px-3 py-1 text-[#9ca3af] mb-5">
+                        {displayData.plan_name} · {displayData.coverage_pct}% {t('planBadge')}
+                    </div>
+
+                    {/* Status banner */}
+                    <div className={`rounded-2xl p-4 flex items-center gap-3 mb-5 ${displayData.protected
+                            ? 'bg-[#22c55e]/8 border border-[#22c55e]/20'
+                            : 'bg-[#f59e0b]/8 border border-[#f59e0b]/20'
+                        }`}>
+                        <span className="text-lg">{displayData.protected ? '✅' : '⚠️'}</span>
+                        <p className={`text-sm font-medium ${displayData.protected ? 'text-[#22c55e]' : 'text-[#f59e0b]'}`}>
+                            {displayData.protected
+                                ? `${t('youAreProtected')} ${fmt(displayData.compensation)} ${t('compIssued')}`
+                                : t('noPayout')
+                            }
+                        </p>
+                    </div>
+
+                    {/* Weather pill */}
+                    <div className="inline-flex items-center gap-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-full px-4 py-2 text-sm text-[#9ca3af] mb-5">
+                        <span>{displayData.weather.condition}</span>
+                        <span>·</span>
+                        <span>{displayData.weather.temperature}°C</span>
+                        <span>·</span>
+                        <span>{displayData.weather.rain_probability}% rain</span>
+                    </div>
+
+                    <MetricCards data={displayData} />
+                    <AIInsight data={displayData} />
+
+                    <button
+                        className="w-full py-3.5 bg-[#1a1a1a] border border-[#2a2a2a] text-white font-semibold rounded-xl hover:bg-[#2a2a2a] transition-colors mb-8"
+                        onClick={handleReset}
+                    >{t('assessAgain')}</button>
+
+                    <EarningsChart data={historyData} />
+                    <ForecastCards data={forecastData} />
+                    <WeeklyReport data={reportData} planId={user?.plan} />
+                    <RiskMap data={mapData} userCity={user?.city} />
+                </div>
+            ) : (
+                /* Income input form */
+                <div className="animate-[fadeIn_0.4s_ease]">
+                    <h2 className="text-2xl font-bold text-white mb-1">Hey, {user?.name}</h2>
+                    <p className="text-sm text-[#9ca3af] mb-6">
+                        {t('weeklyAssessment')} · {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </p>
+
+                    <div className="inline-block text-[10px] font-bold uppercase tracking-wider bg-[#1a1a1a] border border-[#2a2a2a] rounded-full px-3 py-1 text-[#9ca3af] mb-6">
+                        {user?.planName} · {user?.coverage}% {t('planBadge')}
+                    </div>
+
+                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl p-6">
+                        <label className="block text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-2">
+                            {t('enterIncome')}
+                            <span className="text-[#9ca3af] font-normal normal-case ml-1">(max {fmt(user?.maxIncome || 0)})</span>
+                        </label>
+                        <div className="relative mb-4">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ca3af]">₹</span>
+                            <input
+                                type="number" min="1" placeholder="5000"
+                                className="w-full pl-8 pr-4 py-3.5 bg-[#111] border border-[#2a2a2a] rounded-xl text-white outline-none focus:border-[#3a3a3a] transition-colors"
+                                value={income} onChange={e => setIncome(e.target.value)}
+                            />
+                        </div>
+
+                        {error && (
+                            <div className="text-[#ef4444] text-sm mb-4 px-1">{error}</div>
+                        )}
+
+                        <button
+                            className="w-full py-4 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            disabled={!income || Number(income) <= 0 || loading}
+                            onClick={handleAssess}
+                        >
+                            {loading ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    Analyzing...
+                                </span>
+                            ) : t('analyzeRisk')}
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {/* Loading */}
-            {view === 'loading' && <LoadingScreen />}
+            {/* Footer */}
+            <footer className="mt-auto pt-8 pb-4 text-center">
+                <p className="text-xs text-[#4a4a4a]">{t('appTitle')} © {new Date().getFullYear()} · Simulated Demo</p>
+            </footer>
 
-            {/* Form */}
-            {view === 'form' && (
-                <InputForm
-                    onSubmit={handleSubmit}
-                    onDemo={handleDemo}
-                    lang={lang}
-                    defaultData={userData || {}}
+            {/* Upgrade modal */}
+            {upgradeModal && (
+                <PlanUpgradeModal
+                    planId={user?.plan}
+                    maxIncome={upgradeModal.maxIncome}
+                    suggestedPlan={upgradeModal.suggestedPlan}
+                    onUpgrade={handleUpgrade}
+                    onCap={handleCap}
+                    onClose={() => setUpgradeModal(null)}
                 />
             )}
 
-            {/* Dashboard with extras */}
-            {view === 'dashboard' && result && (
-                <>
-                    {/* Streak */}
-                    {historyData && (
-                        <StreakBadge streak={historyData.streak} lang={lang} />
-                    )}
-
-                    <Dashboard data={result} onReset={handleReset} lang={lang} />
-
-                    {/* Earnings Chart */}
-                    <EarningsChart data={historyData} lang={lang} />
-
-                    {/* 5-Day Forecast */}
-                    <Forecast data={forecastData} lang={lang} />
-
-                    {/* AI Report */}
-                    <AIReport data={reportData} lang={lang} />
-
-                    {/* Weather Map */}
-                    <WeatherMap lang={lang} />
-                </>
-            )}
-
-            {/* Footer */}
-            <footer className="app-footer">
-                <p className="app-footer__text">{t('appTitle', lang)} &copy; {new Date().getFullYear()} &middot; {t('footer', lang)}</p>
-            </footer>
-
-            {/* Chat FAB */}
-            <AIChatAssistant lang={lang} />
+            {/* Demo FAB */}
+            <DemoButton onScenarioChange={setDemoResult} />
         </div>
     )
 }
