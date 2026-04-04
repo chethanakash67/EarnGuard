@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLang } from '../context/LanguageContext'
 import { useUser } from '../context/UserContext'
+import { apiUrl } from '../api'
 
 export default function DemoButton({ onScenarioChange }) {
     const { t } = useLang()
@@ -12,7 +13,7 @@ export default function DemoButton({ onScenarioChange }) {
 
     const startDemo = async () => {
         try {
-            const res = await fetch('/api/demo-scenarios', {
+            const res = await fetch(apiUrl('/api/demo-scenarios'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

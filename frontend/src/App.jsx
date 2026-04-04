@@ -23,6 +23,7 @@ import RiskMap from './components/Dashboard/RiskMap'
 import PlanUpgradeModal from './components/PlanUpgradeModal'
 import DemoButton from './components/DemoButton'
 import { CheckCircleIcon, AlertTriangleIcon, ShieldCheckIcon } from './components/Icons'
+import { apiUrl } from './api'
 
 export default function App() {
     const { t } = useLang()
@@ -78,7 +79,7 @@ export default function App() {
         setLoading(true)
 
         try {
-            const res = await fetch('/api/assess', {
+            const res = await fetch(apiUrl('/api/assess'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -104,14 +105,14 @@ export default function App() {
             // Fetch extras in parallel
             const params = `job_type=${encodeURIComponent(user.jobType)}&expected_income=${incomeVal}&plan=${user.plan}`
             const [histRes, foreRes, repRes, mapRes] = await Promise.all([
-                fetch(`/api/history?${params}`),
-                fetch(`/api/forecast?city=${encodeURIComponent(user.city)}&${params}`),
-                fetch('/api/report', {
+                fetch(apiUrl(`/api/history?${params}`)),
+                fetch(apiUrl(`/api/forecast?city=${encodeURIComponent(user.city)}&${params}`)),
+                fetch(apiUrl('/api/report'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: user.name, job_type: user.jobType, expected_income: incomeVal, plan: user.plan }),
                 }),
-                fetch(`/api/map?city=${encodeURIComponent(user.city)}`),
+                fetch(apiUrl(`/api/map?city=${encodeURIComponent(user.city)}`)),
             ])
 
             const [hist, fore, rep, mp] = await Promise.all([histRes.json(), foreRes.json(), repRes.json(), mapRes.json()])
