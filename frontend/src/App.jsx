@@ -46,7 +46,7 @@ export default function App() {
     const [upgradeModal, setUpgradeModal] = useState(null)
     const [loading, setLoading] = useState(false)
 
-    // Demo override
+    // Demo override happend
     const [demoResult, setDemoResult] = useState(null)
 
     const fmt = v => `₹${Number(v).toLocaleString('en-IN')}`
