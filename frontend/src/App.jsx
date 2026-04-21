@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLang } from './context/LanguageContext'
 import { useUser } from './context/UserContext'
 import { getPlanById } from './constants/plans'
-
+//template
 // Onboarding
 import Step1Profile from './components/Onboarding/Step1Profile'
 import Step2Plans from './components/Onboarding/Step2Plans'
